@@ -63,10 +63,12 @@
         <button class="card stat-card" id="homeFridgeStat">
           <div class="lbl">冷蔵庫在庫</div>
           <div class="val"><span id="homeFridgeCount">4</span><span class="unit">品</span></div>
+          <div class="stat-sub" id="homeFridgePreview"></div>
         </button>
         <button class="card stat-card" id="homeSpendStat">
           <div class="lbl">今月の食費</div>
-          <div class="val green"><span id="homeSpendTotal">¥28,810</span></div>
+          <div class="val green"><span id="homeSpendTotal">¥2,010</span></div>
+          <div class="stat-sub" id="homeSpendTrend"></div>
         </button>
       </div>
     </div>
@@ -199,6 +201,7 @@
 
     <div class="subview" id="subview-stores">
       <div class="section-label"><span class="dash"></span>Your Stores<span class="jp">・よく行くお店</span></div>
+      <p class="month-summary-note" id="monthSummaryNote"></p>
 
       <div id="storeList"></div>
 

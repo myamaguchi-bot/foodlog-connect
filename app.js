@@ -142,13 +142,77 @@
     { key: "staple_other", label: "米・パン・麺・調味料など" }
   ];
 
+  // dates are "YYYY/MM/DD" -> month key "YYYY/MM"
+  function getMonthKey(dateStr) {
+    return dateStr.slice(0, 7);
+  }
+  function getMonthLabel(monthKey) {
+    var parts = monthKey.split("/");
+    return parts[0] + "年" + parseInt(parts[1], 10) + "月";
+  }
+
+  function groupByMonth(history) {
+    var map = {};
+    history.forEach(function (h) {
+      var key = getMonthKey(h.date);
+      if (!map[key]) map[key] = { monthKey: key, count: 0, total: 0 };
+      map[key].count += 1;
+      map[key].total += h.total;
+    });
+    return Object.keys(map).sort().reverse().map(function (k) {
+      return map[k];
+    });
+  }
+
+  // Demo data is anchored to fixed dates, so "this month" is derived from the
+  // most recent receipt on record rather than the real current date — a real
+  // build would just use the actual current month.
+  var allMonthKeys = Object.keys(STORE_META).reduce(function (acc, key) {
+    STORE_META[key].history.forEach(function (h) {
+      acc.push(getMonthKey(h.date));
+    });
+    return acc;
+  }, []);
+  var uniqueMonthKeys = allMonthKeys.filter(function (k, i) {
+    return allMonthKeys.indexOf(k) === i;
+  }).sort().reverse();
+  var CURRENT_MONTH_KEY = uniqueMonthKeys[0];
+  var PREVIOUS_MONTH_KEY = uniqueMonthKeys[1];
+
+  function monthlyTotalAcrossStores(monthKey) {
+    return Object.keys(STORE_META).reduce(function (sum, key) {
+      var group = groupByMonth(STORE_META[key].history).filter(function (g) {
+        return g.monthKey === monthKey;
+      })[0];
+      return sum + (group ? group.total : 0);
+    }, 0);
+  }
+
+  function renderMonthSummary() {
+    var note = document.getElementById("monthSummaryNote");
+    if (!note) return;
+    var html = "今月(" + getMonthLabel(CURRENT_MONTH_KEY) + "): <b>¥" + monthlyTotalAcrossStores(CURRENT_MONTH_KEY).toLocaleString() + "</b>";
+    if (PREVIOUS_MONTH_KEY) {
+      html += "<span>先月(" + getMonthLabel(PREVIOUS_MONTH_KEY) + "): <b>¥" + monthlyTotalAcrossStores(PREVIOUS_MONTH_KEY).toLocaleString() + "</b></span>";
+    }
+    note.innerHTML = html;
+  }
+  renderMonthSummary();
+
   function renderStores() {
     var list = document.getElementById("storeList");
     if (!list) return;
     list.innerHTML = Object.keys(STORE_META).map(function (key) {
       var store = STORE_META[key];
-      var historyRows = store.history.map(function (h) {
-        return '<div class="store-history-row"><span>' + h.date + "</span><span>¥" + h.total.toLocaleString() + "</span></div>";
+      var historyRows = groupByMonth(store.history).map(function (g) {
+        var isCurrent = g.monthKey === CURRENT_MONTH_KEY;
+        return (
+          '<div class="store-month-row' + (isCurrent ? " is-current" : "") + '">' +
+          '<span class="month-label">' + getMonthLabel(g.monthKey) + (isCurrent ? '<span class="current-tag">今月</span>' : "") + "</span>" +
+          '<span class="month-count">' + g.count + "回</span>" +
+          '<span class="month-total">¥' + g.total.toLocaleString() + "</span>" +
+          "</div>"
+        );
       }).join("");
       return (
         '<div class="card store-card" data-store="' + key + '">' +
@@ -217,10 +281,26 @@
   renderPriceTrend();
 
   function updateHomeSpend() {
-    var total = Object.keys(STORE_META).reduce(function (sum, key) {
-      return sum + STORE_META[key].total;
-    }, 0);
+    var total = monthlyTotalAcrossStores(CURRENT_MONTH_KEY);
     document.getElementById("homeSpendTotal").textContent = "¥" + total.toLocaleString();
+
+    var trendEl = document.getElementById("homeSpendTrend");
+    if (!PREVIOUS_MONTH_KEY) {
+      trendEl.hidden = true;
+      return;
+    }
+    var previousTotal = monthlyTotalAcrossStores(PREVIOUS_MONTH_KEY);
+    trendEl.classList.remove("trend-down", "trend-up", "trend-flat");
+    if (total < previousTotal) {
+      trendEl.textContent = "↓ 先月より抑えめのペース";
+      trendEl.classList.add("trend-down");
+    } else if (total > previousTotal) {
+      trendEl.textContent = "↑ 先月より多めのペース";
+      trendEl.classList.add("trend-up");
+    } else {
+      trendEl.textContent = "先月と同じくらいのペース";
+      trendEl.classList.add("trend-flat");
+    }
   }
   updateHomeSpend();
 
@@ -240,9 +320,20 @@
   var usedEmptyMsg = document.getElementById("usedEmptyMsg");
 
   function updateFridgeCount() {
-    var n = fridgeRemaining.children.length;
-    fridgeCount.textContent = n + "品";
-    document.getElementById("homeFridgeCount").textContent = n;
+    var names = Array.prototype.map.call(fridgeRemaining.children, function (item) {
+      return item.querySelector(".txt .name").textContent.trim();
+    });
+    fridgeCount.textContent = names.length + "品";
+    document.getElementById("homeFridgeCount").textContent = names.length;
+
+    var previewEl = document.getElementById("homeFridgePreview");
+    if (names.length === 0) {
+      previewEl.textContent = "在庫はありません";
+    } else if (names.length <= 2) {
+      previewEl.textContent = names.join("、");
+    } else {
+      previewEl.textContent = names.slice(0, 2).join("、") + " ほか" + (names.length - 2) + "品";
+    }
   }
   updateFridgeCount();
 
