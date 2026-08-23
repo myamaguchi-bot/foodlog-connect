@@ -46,7 +46,7 @@
     </button>
 
     <div id="activityDefault" hidden>
-      <div class="section-label"><span class="dash"></span>Recent Activity<span class="jp">・最近の活動</span></div>
+      <div class="section-label"><span class="dash"></span>Overview<span class="jp">・概要</span></div>
       <button class="card activity-card" id="lastScanCard">
         <div class="ic">
           <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 7v5l3.5 2"/></svg>
@@ -60,19 +60,19 @@
         </div>
       </button>
       <div class="stat-row">
-        <div class="card stat-card">
+        <button class="card stat-card" id="homeFridgeStat">
           <div class="lbl">冷蔵庫在庫</div>
-          <div class="val">18<span class="unit">品</span></div>
-        </div>
-        <div class="card stat-card">
-          <div class="lbl">今週の節約</div>
-          <div class="val green">¥1,200<span class="approx">概算</span></div>
-        </div>
+          <div class="val"><span id="homeFridgeCount">4</span><span class="unit">品</span></div>
+        </button>
+        <button class="card stat-card" id="homeSpendStat">
+          <div class="lbl">今月の食費</div>
+          <div class="val green"><span id="homeSpendTotal">¥28,810</span></div>
+        </button>
       </div>
     </div>
     <div id="activityEmpty" hidden>
-      <div class="section-label"><span class="dash"></span>Recent Activity<span class="jp">・最近の活動</span></div>
-      <div class="empty-ghost">レシートを撮影すると、<br>ここに在庫と節約額が表示されます。</div>
+      <div class="section-label"><span class="dash"></span>Overview<span class="jp">・概要</span></div>
+      <div class="empty-ghost">レシートを撮影すると、<br>ここに在庫の件数と今月の食費が表示されます。</div>
     </div>
 
     <button class="reset-link" id="resetBtn">デモを初期状態に戻す</button>
@@ -84,10 +84,16 @@
       <button class="icon-btn" id="backBtn">
         <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M15 6l-6 6 6 6"/></svg>
       </button>
-      <div class="page-title">レシート解析結果</div>
+      <div class="page-title">在庫</div>
       <div style="width:34px"></div>
     </div>
 
+    <div class="segmented">
+      <button class="seg-btn active" data-subview="receipt">レシート解析結果</button>
+      <button class="seg-btn" data-subview="stores">お店</button>
+    </div>
+
+    <div class="subview active" id="subview-receipt">
     <div class="receipt-photo">
       <div class="top-row">
         <div class="ocr-badge"><span class="dot"></span>OCR 解析完了</div>
@@ -132,40 +138,84 @@
     </div>
 
     <div class="section-label">
-      <span class="dash"></span>Added to Fridge<span class="jp">・冷蔵庫</span>
-      <span class="spacer"></span><span class="count">6品</span>
+      <span class="dash"></span>In Fridge<span class="jp">・冷蔵庫にある</span>
+      <span class="spacer"></span><span class="count" id="fridgeCount">4品</span>
     </div>
 
-    <div class="card fridge-item">
-      <div class="ic salmon">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+    <div id="fridgeRemaining">
+      <div class="card fridge-item" data-status="remaining">
+        <div class="ic salmon">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>
+        </div>
+        <div class="txt"><div class="name">サーモン刺身</div><div class="sub">1パック ・ 本日購入</div></div>
+        <button class="status-btn st-remaining" data-status-btn>
+          <svg class="icon-remaining" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg class="icon-used" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>
+          <span class="label">残っている</span>
+        </button>
       </div>
-      <div class="txt"><div class="name">サーモン刺身</div><div class="sub">1パック・冷蔵</div></div>
-      <div class="expiry"><div class="lbl">賞味期限</div><span class="pill urgent">残り2日</span></div>
+
+      <div class="card fridge-item" data-status="remaining">
+        <div class="ic spinach">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-8-4-8-11a8 8 0 0116 0c0 7-8 11-8 11z"/><path d="M12 21V10"/></svg>
+        </div>
+        <div class="txt"><div class="name">ほうれん草</div><div class="sub">1束 ・ 本日購入</div></div>
+        <button class="status-btn st-remaining" data-status-btn>
+          <svg class="icon-remaining" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg class="icon-used" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>
+          <span class="label">残っている</span>
+        </button>
+      </div>
+
+      <div class="card fridge-item" data-status="remaining">
+        <div class="ic quinoa">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a8 8 0 0016 0"/><path d="M4 10c0-1 3.5-2 8-2s8 1 8 2"/><path d="M4 10l1.5 8.5A2 2 0 007.5 20h9a2 2 0 002-1.5L20 10"/></svg>
+        </div>
+        <div class="txt"><div class="name">キノア 250g</div><div class="sub">1袋 ・ 2日前に購入</div></div>
+        <button class="status-btn st-remaining" data-status-btn>
+          <svg class="icon-remaining" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg class="icon-used" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>
+          <span class="label">残っている</span>
+        </button>
+      </div>
+
+      <div class="card fridge-item" data-status="remaining">
+        <div class="ic other">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v5l-4 6.5A3 3 0 008.5 18h7a3 3 0 002.5-4.5L14 7V2"/></svg>
+        </div>
+        <div class="txt"><div class="name">牛乳・卵・トマト</div><div class="sub">ほか3品目 ・ 5日前に購入</div></div>
+        <button class="status-btn st-remaining" data-status-btn>
+          <svg class="icon-remaining" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>
+          <svg class="icon-used" hidden viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>
+          <span class="label">残っている</span>
+        </button>
+      </div>
     </div>
 
-    <div class="card fridge-item">
-      <div class="ic spinach">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-8-4-8-11a8 8 0 0116 0c0 7-8 11-8 11z"/><path d="M12 21V10"/></svg>
-      </div>
-      <div class="txt"><div class="name">ほうれん草</div><div class="sub">1束・野菜室</div></div>
-      <div class="expiry"><div class="lbl">賞味期限</div><span class="pill soon">残り4日</span></div>
+    <div class="section-label" style="margin-top:22px"><span class="dash"></span>Used Up<span class="jp">・消費済み</span></div>
+    <div id="fridgeUsed"></div>
+    <div class="used-empty" id="usedEmptyMsg">「消費済み」にした商品はここに表示されます。</div>
     </div>
 
-    <div class="card fridge-item">
-      <div class="ic quinoa">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a8 8 0 0016 0"/><path d="M4 10c0-1 3.5-2 8-2s8 1 8 2"/><path d="M4 10l1.5 8.5A2 2 0 007.5 20h9a2 2 0 002-1.5L20 10"/></svg>
-      </div>
-      <div class="txt"><div class="name">キノア 250g</div><div class="sub">1袋・常温</div></div>
-      <div class="expiry"><div class="lbl">賞味期限</div><span class="pill ok">残り30日</span></div>
-    </div>
+    <div class="subview" id="subview-stores">
+      <div class="section-label"><span class="dash"></span>Your Stores<span class="jp">・よく行くお店</span></div>
 
-    <div class="card fridge-item">
-      <div class="ic other">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v5l-4 6.5A3 3 0 008.5 18h7a3 3 0 002.5-4.5L14 7V2"/></svg>
+      <div id="storeList"></div>
+
+      <div class="section-label" style="margin-top:22px"><span class="dash"></span>Other<span class="jp">・履歴に残さないお店</span></div>
+      <div class="card store-other-card">
+        <div class="store-avatar store-other">他</div>
+        <div class="store-info">
+          <div class="store-name">その他スーパー</div>
+          <div class="store-stats muted">履歴には残りません・冷蔵庫への追加専用</div>
+        </div>
       </div>
-      <div class="txt"><div class="name">牛乳・卵・トマト</div><div class="sub">ほか3品目</div></div>
-      <div class="expiry"><div class="lbl">賞味期限</div><span class="pill neutral">3〜12日</span></div>
+
+      <div class="section-label" style="margin-top:22px"><span class="dash"></span>Price Trend<span class="jp">・価格の傾向</span></div>
+      <div class="card compare-card">
+        <p class="compare-note">過去の購入データに基づく概算です</p>
+        <div id="compareList"></div>
+      </div>
     </div>
   </section>
 
@@ -194,7 +244,17 @@
       <p>野菜を補充できるバランス食です。過去の購入を上手に使い切れます。</p>
     </div>
 
-    <button class="btn-primary" id="recipeBtn">レシピを見る</button>
+    <a class="btn-primary" id="heroRecipeLink" href="#" target="_blank" rel="noopener">レシピを見る</a>
+
+    <div class="section-label" style="margin-top:22px"><span class="dash"></span>More Recipes<span class="jp">・他の候補</span></div>
+    <p class="lead-text">カテゴリを選ぶと、他の候補が見られます。</p>
+
+    <div class="recipe-categories">
+      <button class="cat-btn" data-category="main">メイン料理</button>
+      <button class="cat-btn" data-category="side">副菜</button>
+      <button class="cat-btn" data-category="soup">汁物</button>
+    </div>
+    <div id="recipeCategoryList"></div>
 
     <button class="scroll-hint" id="scrollHintBtn">
       <span>スクロールして続きを見る</span>
