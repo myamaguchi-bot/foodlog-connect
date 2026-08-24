@@ -60,7 +60,6 @@
 
   document.getElementById("lastScanCard").addEventListener("click", function () {
     showView("receipt");
-    switchInventorySubview("receipt");
   });
 
   document.getElementById("resetBtn").addEventListener("click", function () {
@@ -93,18 +92,20 @@
     });
   });
 
-  // --- inventory sub-navigation (レシート解析結果 / お店) ---
-  function switchInventorySubview(name) {
-    document.querySelectorAll(".seg-btn").forEach(function (b) {
+  // --- segmented sub-navigation, scoped per view (在庫: 冷蔵庫/常備品, お店: お店履歴/価格の傾向) ---
+  function switchInventorySubview(viewId, name) {
+    var scope = document.getElementById(viewId);
+    if (!scope) return;
+    scope.querySelectorAll(".seg-btn").forEach(function (b) {
       b.classList.toggle("active", b.dataset.subview === name);
     });
-    document.querySelectorAll(".subview").forEach(function (v) {
+    scope.querySelectorAll(".subview").forEach(function (v) {
       v.classList.toggle("active", v.id === "subview-" + name);
     });
   }
   document.querySelectorAll(".seg-btn").forEach(function (btn) {
     btn.addEventListener("click", function () {
-      switchInventorySubview(btn.dataset.subview);
+      switchInventorySubview(btn.closest(".view").id, btn.dataset.subview);
     });
   });
 
@@ -121,7 +122,8 @@
         { date: "2026/06/09", total: 3960 },
         { date: "2026/06/02", total: 5370 }
       ],
-      prices: { meat_fish: 480, veg_fruit: 158, dairy_egg: 210, staple_other: 320 }
+      prices: { meat_fish: 480, veg_fruit: 158, dairy_egg: 210, staple_other: 320 },
+      tracked: true
     },
     B: {
       name: "Bスーパー",
@@ -132,7 +134,17 @@
         { date: "2026/06/14", total: 2980 },
         { date: "2026/06/05", total: 3550 }
       ],
-      prices: { meat_fish: 540, veg_fruit: 118, dairy_egg: 206, staple_other: 335 }
+      prices: { meat_fish: 540, veg_fruit: 118, dairy_egg: 206, staple_other: 335 },
+      tracked: true
+    },
+    C: {
+      name: "Cスーパー",
+      visits: 0,
+      total: 0,
+      history: [],
+      prices: { meat_fish: 510, veg_fruit: 145, dairy_egg: 215, staple_other: 300 },
+      tracked: false,
+      optional: true
     }
   };
   var CATEGORIES = [
@@ -155,11 +167,15 @@
     var map = {};
     history.forEach(function (h) {
       var key = getMonthKey(h.date);
-      if (!map[key]) map[key] = { monthKey: key, count: 0, total: 0 };
+      if (!map[key]) map[key] = { monthKey: key, count: 0, total: 0, entries: [] };
       map[key].count += 1;
       map[key].total += h.total;
+      map[key].entries.push(h);
     });
     return Object.keys(map).sort().reverse().map(function (k) {
+      map[k].entries.sort(function (a, b) {
+        return a.date < b.date ? 1 : -1;
+      });
       return map[k];
     });
   }
@@ -199,21 +215,45 @@
   }
   renderMonthSummary();
 
+  var MONTH_CHEVRON_SVG =
+    '<svg class="month-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>';
+
   function renderStores() {
     var list = document.getElementById("storeList");
     if (!list) return;
     list.innerHTML = Object.keys(STORE_META).map(function (key) {
       var store = STORE_META[key];
-      var historyRows = groupByMonth(store.history).map(function (g) {
-        var isCurrent = g.monthKey === CURRENT_MONTH_KEY;
-        return (
-          '<div class="store-month-row' + (isCurrent ? " is-current" : "") + '">' +
-          '<span class="month-label">' + getMonthLabel(g.monthKey) + (isCurrent ? '<span class="current-tag">今月</span>' : "") + "</span>" +
-          '<span class="month-count">' + g.count + "回</span>" +
-          '<span class="month-total">¥' + g.total.toLocaleString() + "</span>" +
+      var monthGroups = groupByMonth(store.history);
+
+      var monthHtml = monthGroups.length
+        ? monthGroups.map(function (g) {
+            var isCurrent = g.monthKey === CURRENT_MONTH_KEY;
+            var dailyRows = g.entries.map(function (h) {
+              return '<div class="store-daily-row"><span>' + h.date + "</span><span>¥" + h.total.toLocaleString() + "</span></div>";
+            }).join("");
+            return (
+              '<div class="month-group">' +
+              '<button class="store-month-row' + (isCurrent ? " is-current" : "") + '" data-month-toggle>' +
+              '<span class="month-label">' + getMonthLabel(g.monthKey) + (isCurrent ? '<span class="current-tag">今月</span>' : "") + "</span>" +
+              '<span class="month-count">' + g.count + "回</span>" +
+              '<span class="month-total">¥' + g.total.toLocaleString() + "</span>" +
+              MONTH_CHEVRON_SVG +
+              "</button>" +
+              '<div class="store-daily" hidden>' + dailyRows + "</div>" +
+              "</div>"
+            );
+          }).join("")
+        : '<div class="store-daily-empty">まだ購入記録がありません。</div>';
+
+      var trackRow = store.optional
+        ? '<div class="store-track-row">' +
+          '<span class="lbl">価格の傾向に含める</span>' +
+          '<button class="status-btn ' + (store.tracked ? "st-tracked" : "st-untracked") + '" data-track-toggle data-store="' + key + '">' +
+          (store.tracked ? "含めています" : "含めていません") +
+          "</button>" +
           "</div>"
-        );
-      }).join("");
+        : "";
+
       return (
         '<div class="card store-card" data-store="' + key + '">' +
         '<button class="store-summary" data-store-toggle>' +
@@ -224,7 +264,8 @@
         "</div>" +
         '<svg class="store-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' +
         "</button>" +
-        '<div class="store-history" hidden>' + historyRows + "</div>" +
+        trackRow +
+        '<div class="store-history" hidden>' + monthHtml + "</div>" +
         "</div>"
       );
     }).join("");
@@ -235,6 +276,24 @@
         var history = card.querySelector(".store-history");
         var open = card.classList.toggle("is-open");
         history.hidden = !open;
+      });
+    });
+
+    document.querySelectorAll("[data-month-toggle]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var group = btn.closest(".month-group");
+        var daily = group.querySelector(".store-daily");
+        var open = group.classList.toggle("is-open");
+        daily.hidden = !open;
+      });
+    });
+
+    document.querySelectorAll("[data-track-toggle]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var key = btn.dataset.store;
+        STORE_META[key].tracked = !STORE_META[key].tracked;
+        renderStores();
+        renderPriceTrend();
       });
     });
   }
@@ -254,26 +313,43 @@
     );
   }
 
+  function trackedStoreKeys() {
+    return Object.keys(STORE_META).filter(function (key) {
+      return STORE_META[key].tracked;
+    });
+  }
+
   function renderPriceTrend() {
     var list = document.getElementById("compareList");
     if (!list) return;
+    var keys = trackedStoreKeys();
     list.innerHTML = CATEGORIES.map(function (cat) {
-      var priceA = STORE_META.A.prices[cat.key];
-      var priceB = STORE_META.B.prices[cat.key];
-      var diff = Math.abs(priceA - priceB);
-      var cheaper = priceA === priceB ? null : priceA < priceB ? "A" : "B";
-      var summary =
-        cheaper === null
-          ? cat.label + "はどちらもほぼ同じ価格です。"
-          : cat.label + "は" + STORE_META[cheaper].name + "が平均¥" + diff + "安い傾向です。";
+      var prices = keys.map(function (key) {
+        return { key: key, price: STORE_META[key].prices[cat.key] };
+      });
+      var summary;
+      var cheapKeys = [];
+      if (prices.length < 2) {
+        summary = cat.label + "は比較できるお店が1つのため、傾向はまだ分かりません。";
+      } else {
+        var minPrice = Math.min.apply(null, prices.map(function (p) { return p.price; }));
+        var maxPrice = Math.max.apply(null, prices.map(function (p) { return p.price; }));
+        cheapKeys = prices.filter(function (p) { return p.price === minPrice; }).map(function (p) { return p.key; });
+        if (minPrice === maxPrice) {
+          summary = cat.label + "はどのお店もほぼ同じ価格です。";
+        } else {
+          var names = cheapKeys.map(function (k) { return STORE_META[k].name; }).join("・");
+          summary = cat.label + "は" + names + "が平均¥" + (maxPrice - minPrice) + "安い傾向です。";
+        }
+      }
+      var chips = prices.map(function (p) {
+        return priceChip(p.key, p.price, cheapKeys.indexOf(p.key) !== -1 && cheapKeys.length < prices.length);
+      }).join("");
       return (
         '<div class="compare-row">' +
         '<div class="compare-label">' + cat.label + "</div>" +
         '<p class="compare-summary">' + summary + "</p>" +
-        '<div class="compare-chips">' +
-        priceChip("A", priceA, cheaper === "A") +
-        priceChip("B", priceB, cheaper === "B") +
-        "</div>" +
+        '<div class="compare-chips">' + chips + "</div>" +
         "</div>"
       );
     }).join("");
@@ -305,12 +381,12 @@
   updateHomeSpend();
 
   document.getElementById("homeFridgeStat").addEventListener("click", function () {
-    showView("receipt");
-    switchInventorySubview("receipt");
+    showView("inventory");
+    switchInventorySubview("view-inventory", "fridge");
   });
   document.getElementById("homeSpendStat").addEventListener("click", function () {
-    showView("receipt");
-    switchInventorySubview("stores");
+    showView("stores");
+    switchInventorySubview("view-stores", "trend");
   });
 
   // --- fridge item status (残っている / 消費済み) ---
@@ -355,6 +431,18 @@
       (nowUsed ? fridgeUsed : fridgeRemaining).appendChild(item);
       updateFridgeCount();
       updateUsedEmptyState();
+    });
+  });
+
+  // --- pantry staples (在庫あり / そろそろ切れそう) — no purchase-date tracking, unlike fresh food ---
+  document.querySelectorAll("[data-pantry-toggle]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var nowLow = !btn.classList.contains("st-low");
+      btn.classList.toggle("st-low", nowLow);
+      btn.classList.toggle("st-ok", !nowLow);
+      btn.querySelector(".icon-ok").hidden = nowLow;
+      btn.querySelector(".icon-low").hidden = !nowLow;
+      btn.querySelector(".label").textContent = nowLow ? "そろそろ切れそう" : "在庫あり";
     });
   });
 
