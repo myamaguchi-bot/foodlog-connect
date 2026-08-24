@@ -204,6 +204,20 @@
     }, 0);
   }
 
+  function addNewStore(name) {
+    var newKey = String.fromCharCode(65 + Object.keys(STORE_META).length);
+    STORE_META[newKey] = {
+      name: name,
+      visits: 0,
+      total: 0,
+      history: [],
+      prices: { meat_fish: 500, veg_fruit: 150, dairy_egg: 210, staple_other: 310 },
+      tracked: false,
+      optional: true
+    };
+    return newKey;
+  }
+
   function renderMonthSummary() {
     var note = document.getElementById("monthSummaryNote");
     if (!note) return;
@@ -256,19 +270,58 @@
 
       return (
         '<div class="card store-card" data-store="' + key + '">' +
-        '<button class="store-summary" data-store-toggle>' +
+        '<div class="store-summary" data-store-toggle>' +
         '<div class="store-avatar store-' + key + '">' + key + "</div>" +
         '<div class="store-info">' +
-        '<div class="store-name">' + store.name + "</div>" +
+        '<div class="store-name-row">' +
+        '<span class="store-name" contenteditable="false">' + store.name + "</span>" +
+        '<button class="pencil-btn" data-rename-store="' + key + '">' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>' +
+        "</button>" +
+        "</div>" +
         '<div class="store-stats">利用' + store.visits + "回 ・ 合計¥" + store.total.toLocaleString() + "</div>" +
         "</div>" +
         '<svg class="store-chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 6l6 6-6 6"/></svg>' +
-        "</button>" +
+        "</div>" +
         trackRow +
         '<div class="store-history" hidden>' + monthHtml + "</div>" +
         "</div>"
       );
     }).join("");
+
+    document.querySelectorAll("[data-rename-store]").forEach(function (btn) {
+      btn.addEventListener("click", function (e) {
+        e.stopPropagation();
+        var key = btn.dataset.renameStore;
+        var nameEl = btn.previousElementSibling;
+        var editing = nameEl.getAttribute("contenteditable") === "true";
+        if (editing) {
+          nameEl.setAttribute("contenteditable", "false");
+          var newName = nameEl.textContent.trim();
+          if (newName) {
+            STORE_META[key].name = newName;
+          }
+          renderStores();
+          renderPriceTrend();
+          renderStoreOptions();
+          showToast("お店の名前を更新しました");
+        } else {
+          nameEl.setAttribute("contenteditable", "true");
+          nameEl.focus();
+          var range = document.createRange();
+          range.selectNodeContents(nameEl);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      });
+    });
+
+    document.querySelectorAll(".store-name").forEach(function (nameEl) {
+      nameEl.addEventListener("click", function (e) {
+        e.stopPropagation();
+      });
+    });
 
     document.querySelectorAll("[data-store-toggle]").forEach(function (btn) {
       btn.addEventListener("click", function () {
@@ -298,6 +351,90 @@
     });
   }
   renderStores();
+
+  // --- add a new store from the お店 tab ---
+  var addStoreBtn = document.getElementById("addStoreBtn");
+  var addStoreForm = document.getElementById("addStoreForm");
+  var newStoreNameInput = document.getElementById("newStoreNameInput");
+
+  addStoreBtn.addEventListener("click", function () {
+    addStoreBtn.hidden = true;
+    addStoreForm.hidden = false;
+    newStoreNameInput.value = "";
+    newStoreNameInput.focus();
+  });
+  document.getElementById("cancelAddStoreBtn").addEventListener("click", function () {
+    addStoreForm.hidden = true;
+    addStoreBtn.hidden = false;
+  });
+  document.getElementById("confirmAddStoreBtn").addEventListener("click", function () {
+    var name = newStoreNameInput.value.trim();
+    if (!name) return;
+    addNewStore(name);
+    renderStores();
+    renderPriceTrend();
+    renderStoreOptions();
+    addStoreForm.hidden = true;
+    addStoreBtn.hidden = false;
+    showToast("お店を追加しました");
+  });
+
+  // --- store picker on the receipt scan result screen ---
+  var storeSelect = document.getElementById("storeSelect");
+  var currentReceiptStoreKey = "A";
+
+  function renderStoreOptions() {
+    if (!storeSelect) return;
+    storeSelect.innerHTML =
+      Object.keys(STORE_META).map(function (key) {
+        return '<option value="' + key + '">' + STORE_META[key].name + "</option>";
+      }).join("") + '<option value="__add__">＋ 新しいお店を追加</option>';
+    storeSelect.value = STORE_META[currentReceiptStoreKey] ? currentReceiptStoreKey : Object.keys(STORE_META)[0];
+  }
+  renderStoreOptions();
+
+  function reassignReceiptStore(newKey, oldKey) {
+    if (newKey === oldKey) return;
+    var idx = STORE_META[oldKey].history.findIndex(function (h) {
+      return h.date === "2026/07/02";
+    });
+    var entry;
+    if (idx !== -1) {
+      entry = STORE_META[oldKey].history.splice(idx, 1)[0];
+      STORE_META[oldKey].visits -= 1;
+      STORE_META[oldKey].total -= entry.total;
+    } else {
+      entry = { date: "2026/07/02", total: 2010 };
+    }
+    STORE_META[newKey].history.push(entry);
+    STORE_META[newKey].visits += 1;
+    STORE_META[newKey].total += entry.total;
+    renderStores();
+    renderPriceTrend();
+    renderMonthSummary();
+    updateHomeSpend();
+  }
+
+  storeSelect.addEventListener("change", function () {
+    if (storeSelect.value === "__add__") {
+      var name = window.prompt("新しいお店の名前を入力してください");
+      if (name && name.trim()) {
+        var key = addNewStore(name.trim());
+        renderStores();
+        renderPriceTrend();
+        renderStoreOptions();
+        reassignReceiptStore(key, currentReceiptStoreKey);
+        currentReceiptStoreKey = key;
+        storeSelect.value = key;
+        showToast("お店を追加しました");
+      } else {
+        storeSelect.value = currentReceiptStoreKey;
+      }
+    } else {
+      reassignReceiptStore(storeSelect.value, currentReceiptStoreKey);
+      currentReceiptStoreKey = storeSelect.value;
+    }
+  });
 
   function priceChip(storeKey, price, isCheap) {
     var check = isCheap
@@ -422,6 +559,11 @@
       var item = btn.closest(".fridge-item");
       var nowUsed = item.dataset.status !== "used";
       item.dataset.status = nowUsed ? "used" : "remaining";
+      if (nowUsed) {
+        item.dataset.consumedAt = new Date().toISOString();
+      } else {
+        delete item.dataset.consumedAt;
+      }
       item.classList.toggle("is-used", nowUsed);
       btn.classList.toggle("st-used", nowUsed);
       btn.classList.toggle("st-remaining", !nowUsed);
@@ -431,8 +573,110 @@
       (nowUsed ? fridgeUsed : fridgeRemaining).appendChild(item);
       updateFridgeCount();
       updateUsedEmptyState();
+      renderNutritionDiagnosis();
     });
   });
+
+  // --- nutrition diagnosis: computed from items marked 消費済み in the last 7 days ---
+  var NUTRIENT_AXES = [
+    { key: "protein", label: "タンパク質", angle: -90 },
+    { key: "fat", label: "脂質", angle: -18 },
+    { key: "carb", label: "炭水化物", angle: 54 },
+    { key: "vitamin", label: "ビタミン", angle: 126 },
+    { key: "mineral", label: "ミネラル", angle: 198 }
+  ];
+  var RADAR_CENTER = { x: 160, y: 150 };
+  var RADAR_MAX_R = 108;
+  var WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+  // Which of the 5 major nutrient groups each fridge item mainly contributes.
+  var NUTRIENT_PROFILE = {
+    "サーモン刺身": ["protein", "fat"],
+    "ほうれん草": ["vitamin", "mineral"],
+    "キノア 250g": ["carb", "protein"],
+    "牛乳・卵・トマト": ["protein", "fat", "vitamin", "mineral"]
+  };
+  var NUTRIENT_SUGGESTIONS = {
+    protein: "肉・魚・卵などを1品足すと改善します。",
+    fat: "魚や良質な油を使ったメニューを取り入れると改善します。",
+    carb: "ご飯やパンなどの主食をしっかり摂ると改善します。",
+    vitamin: "緑黄色野菜や果物を1品足すと改善します。",
+    mineral: "海藻・乳製品・小魚などを取り入れると改善します。"
+  };
+
+  function getConsumedThisWeek() {
+    return Array.prototype.filter.call(document.querySelectorAll(".fridge-item"), function (item) {
+      if (item.dataset.status !== "used" || !item.dataset.consumedAt) return false;
+      return Date.now() - new Date(item.dataset.consumedAt).getTime() <= WEEK_MS;
+    }).map(function (item) {
+      return item.querySelector(".txt .name").textContent.trim();
+    });
+  }
+
+  function renderNutritionDiagnosis() {
+    var emptyEl = document.getElementById("radarEmpty");
+    var wrapEl = document.getElementById("radarWrap");
+    var disclaimerEl = document.getElementById("radarDisclaimer");
+    var warningEl = document.getElementById("warningBox");
+    if (!emptyEl) return;
+
+    var consumedNames = getConsumedThisWeek();
+    var total = consumedNames.length;
+
+    if (total === 0) {
+      emptyEl.hidden = false;
+      wrapEl.hidden = true;
+      disclaimerEl.hidden = true;
+      warningEl.hidden = true;
+      return;
+    }
+    emptyEl.hidden = true;
+    wrapEl.hidden = false;
+    disclaimerEl.hidden = false;
+
+    var counts = {};
+    NUTRIENT_AXES.forEach(function (ax) {
+      counts[ax.key] = 0;
+    });
+    consumedNames.forEach(function (name) {
+      (NUTRIENT_PROFILE[name] || []).forEach(function (nutrient) {
+        if (counts.hasOwnProperty(nutrient)) counts[nutrient] += 1;
+      });
+    });
+
+    var values = {};
+    NUTRIENT_AXES.forEach(function (ax) {
+      values[ax.key] = Math.min(1, counts[ax.key] / total);
+    });
+
+    var points = NUTRIENT_AXES.map(function (ax) {
+      var rad = (ax.angle * Math.PI) / 180;
+      var r = RADAR_MAX_R * values[ax.key];
+      var x = RADAR_CENTER.x + r * Math.cos(rad);
+      var y = RADAR_CENTER.y + r * Math.sin(rad);
+      var dot = document.getElementById("radarDot-" + ax.key);
+      dot.setAttribute("cx", x.toFixed(1));
+      dot.setAttribute("cy", y.toFixed(1));
+      return x.toFixed(1) + "," + y.toFixed(1);
+    }).join(" ");
+    document.getElementById("radarPolygon").setAttribute("points", points);
+
+    var minKey = NUTRIENT_AXES.reduce(function (min, ax) {
+      return values[ax.key] < values[min] ? ax.key : min;
+    }, NUTRIENT_AXES[0].key);
+    var minAxis = NUTRIENT_AXES.filter(function (ax) { return ax.key === minKey; })[0];
+    var minPercent = Math.round(values[minKey] * 100);
+
+    if (values[minKey] >= 0.8) {
+      warningEl.hidden = true;
+    } else {
+      warningEl.hidden = false;
+      document.getElementById("warningTitle").textContent = "今週は" + minAxis.label + "が不足しています";
+      document.getElementById("warningBody").textContent =
+        minAxis.label + "を含む食品の消費が基準の約" + minPercent + "%。" + NUTRIENT_SUGGESTIONS[minKey];
+    }
+  }
+  renderNutritionDiagnosis();
 
   // --- pantry staples (在庫あり / そろそろ切れそう) — no purchase-date tracking, unlike fresh food ---
   document.querySelectorAll("[data-pantry-toggle]").forEach(function (btn) {

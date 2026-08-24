@@ -95,7 +95,10 @@
         <div class="ocr-badge"><span class="dot"></span>OCR 解析完了</div>
         <div class="timestamp eng">2026/07/02 18:42</div>
       </div>
-      <div class="store-name">Aスーパー 長野店</div>
+      <div class="store-select-row">
+        <span class="store-select-lbl">お店</span>
+        <select class="store-select" id="storeSelect"></select>
+      </div>
       <div class="receipt-lines">
         <div class="rline">
           <span class="name" contenteditable="false">サーモン刺身</span>
@@ -254,6 +257,13 @@
       <p class="month-summary-note" id="monthSummaryNote"></p>
 
       <div id="storeList"></div>
+
+      <button class="add-store-btn" id="addStoreBtn">＋ お店を追加</button>
+      <div class="add-store-form" id="addStoreForm" hidden>
+        <input type="text" id="newStoreNameInput" class="add-store-input" placeholder="お店の名前を入力">
+        <button class="add-store-confirm" id="confirmAddStoreBtn">追加</button>
+        <button class="add-store-cancel" id="cancelAddStoreBtn">キャンセル</button>
+      </div>
     </div>
 
     <div class="subview" id="subview-trend">
@@ -273,9 +283,13 @@
     </div>
 
     <div class="section-label"><span class="dash"></span>Nutrition Balance</div>
-    <p class="lead-text">今週の栄養バランスと、在庫を活かす提案。</p>
+    <p class="lead-text">直近1週間に「消費済み」にしたものの傾向です。</p>
 
-    <div class="radar-wrap">
+    <div class="radar-empty" id="radarEmpty" hidden>
+      まだ今週「消費済み」にした記録がありません。<br>「在庫」タブで商品を消費済みにすると、ここに反映されます。
+    </div>
+
+    <div class="radar-wrap" id="radarWrap">
       <svg width="260" height="255" viewBox="0 0 320 300">
         <polygon points="160.0,42.0 262.7,116.6 223.5,237.4 96.5,237.4 57.3,116.6" fill="none" stroke="#EAE6DC" stroke-width="1.2"/>
         <polygon points="160.0,78.7 227.8,128.0 201.9,207.7 118.1,207.7 92.2,128.0" fill="none" stroke="#EAE6DC" stroke-width="1.2"/>
@@ -285,12 +299,12 @@
         <line x1="160" y1="150" x2="223.5" y2="237.4" stroke="#EAE6DC" stroke-width="1.2"/>
         <line x1="160" y1="150" x2="96.5" y2="237.4" stroke="#EAE6DC" stroke-width="1.2"/>
         <line x1="160" y1="150" x2="57.3" y2="116.6" stroke="#EAE6DC" stroke-width="1.2"/>
-        <polygon points="160.0,55.0 216.5,131.6 203.2,209.4 141.0,176.2 121.0,137.3" fill="rgba(226,72,28,0.22)" stroke="#E2481C" stroke-width="2" stroke-linejoin="round"/>
-        <circle cx="160.0" cy="55.0" r="3.2" fill="#E2481C"/>
-        <circle cx="216.5" cy="131.6" r="3.2" fill="#E2481C"/>
-        <circle cx="203.2" cy="209.4" r="3.2" fill="#E2481C"/>
-        <circle cx="141.0" cy="176.2" r="3.2" fill="#E2481C"/>
-        <circle cx="121.0" cy="137.3" r="3.2" fill="#E2481C"/>
+        <polygon id="radarPolygon" points="160,150 160,150 160,150 160,150 160,150" fill="rgba(226,72,28,0.22)" stroke="#E2481C" stroke-width="2" stroke-linejoin="round"/>
+        <circle id="radarDot-protein" cx="160" cy="150" r="3.2" fill="#E2481C"/>
+        <circle id="radarDot-fat" cx="160" cy="150" r="3.2" fill="#E2481C"/>
+        <circle id="radarDot-carb" cx="160" cy="150" r="3.2" fill="#E2481C"/>
+        <circle id="radarDot-vitamin" cx="160" cy="150" r="3.2" fill="#E2481C"/>
+        <circle id="radarDot-mineral" cx="160" cy="150" r="3.2" fill="#E2481C"/>
         <text x="160" y="24" text-anchor="middle" font-size="12" font-weight="700" fill="#20232A">タンパク質</text>
         <text x="289" y="115" text-anchor="start" font-size="12" font-weight="700" fill="#20232A">脂質</text>
         <text x="240" y="256" text-anchor="middle" font-size="12" font-weight="700" fill="#20232A">炭水化物</text>
@@ -298,13 +312,13 @@
         <text x="31" y="115" text-anchor="end" font-size="12" font-weight="700" fill="#20232A">ミネラル</text>
       </svg>
     </div>
-    <p class="radar-disclaimer">※購入記録に基づく概算です</p>
+    <p class="radar-disclaimer" id="radarDisclaimer" hidden>※消費済みにした商品の5大栄養素をもとにした概算です</p>
 
-    <div class="warning-box">
+    <div class="warning-box" id="warningBox" hidden>
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.5 17a1.8 1.8 0 001.6 2.7h15.8a1.8 1.8 0 001.6-2.7L13.7 3.9a1.8 1.8 0 00-3.4 0z"/></svg>
       <div>
-        <div class="t">今週は野菜が不足しています</div>
-        <p>ビタミン・ミネラルが基準の約40%。緑黄色野菜を1品足すと大きく改善します。</p>
+        <div class="t" id="warningTitle"></div>
+        <p id="warningBody"></p>
       </div>
     </div>
 
