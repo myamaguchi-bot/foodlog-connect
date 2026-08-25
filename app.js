@@ -2,14 +2,52 @@
   "use strict";
 
   var STORAGE_KEY = "fc_hasScanned";
+  var STATE_KEY = "fc_app_state_v1";
+  var savedStateCache;
+
+  function getSavedState() {
+    if (savedStateCache !== undefined) return savedStateCache;
+    try {
+      var raw = localStorage.getItem(STATE_KEY);
+      savedStateCache = raw ? JSON.parse(raw) : null;
+    } catch (e) {
+      savedStateCache = null;
+    }
+    return savedStateCache;
+  }
+
+  // Saved on every change so the demo survives page reloads on this device/browser
+  // (this is browser-local storage, not a real server — it doesn't sync across devices).
+  function saveState() {
+    var itemStatus = {};
+    ITEM_SOURCE.forEach(function (item, index) {
+      itemStatus[index] = {
+        status: item.status || "remaining",
+        consumedAt: item.consumedAt || null,
+        pantryStatus: item.currentPantryStatus || item.initialStatus || "ok",
+        productName: item.productName
+      };
+    });
+    try {
+      localStorage.setItem(STATE_KEY, JSON.stringify({
+        storeMeta: STORE_META,
+        itemStatus: itemStatus,
+        currentReceiptStoreKey: currentReceiptStoreKey,
+        receiptItemNames: RECEIPT_ITEMS.map(function (i) { return i.name; })
+      }));
+    } catch (e) {}
+  }
 
   var views = document.querySelectorAll(".view");
   var tabs = document.querySelectorAll(".tab");
   var scanOverlay = document.getElementById("scanOverlay");
   var toastEl = document.getElementById("toast");
 
+  // 発表などの初回アクセス時に、その場でのカメラ撮影に失敗するリスクを避けるため、
+  // 何も保存されていない状態(=初めてこのブラウザで開いたとき)は「スキャン済み」を既定値にする。
+  // リセットボタンを押すと明示的に"0"を保存し、スキャン前の空の状態を再現できるようにする。
   function hasScanned() {
-    return localStorage.getItem(STORAGE_KEY) === "1";
+    return localStorage.getItem(STORAGE_KEY) !== "0";
   }
 
   function showView(name) {
@@ -49,13 +87,31 @@
   });
 
   // --- home screen ---
+  // Tapping "scan" opens the device camera for real (via the file input's
+  // capture attribute); the captured photo is shown as the receipt background,
+  // though the text inside it is still fixed demo data, not actually read.
+  var receiptFileInput = document.getElementById("receiptFileInput");
+  var receiptPhotoCard = document.getElementById("receiptPhotoCard");
+
   document.getElementById("scanBtn").addEventListener("click", function () {
-    scanOverlay.hidden = false;
-    setTimeout(function () {
-      localStorage.setItem(STORAGE_KEY, "1");
-      scanOverlay.hidden = true;
-      showView("receipt");
-    }, 900);
+    receiptFileInput.click();
+  });
+
+  receiptFileInput.addEventListener("change", function () {
+    var file = receiptFileInput.files && receiptFileInput.files[0];
+    receiptFileInput.value = "";
+    if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function (e) {
+      scanOverlay.hidden = false;
+      setTimeout(function () {
+        receiptPhotoCard.style.backgroundImage = "url(" + e.target.result + ")";
+        localStorage.setItem(STORAGE_KEY, "1");
+        scanOverlay.hidden = true;
+        showView("receipt");
+      }, 900);
+    };
+    reader.readAsDataURL(file);
   });
 
   document.getElementById("lastScanCard").addEventListener("click", function () {
@@ -63,9 +119,9 @@
   });
 
   document.getElementById("resetBtn").addEventListener("click", function () {
-    localStorage.removeItem(STORAGE_KEY);
-    renderHome();
-    showToast("初期状態に戻しました");
+    localStorage.setItem(STORAGE_KEY, "0");
+    localStorage.removeItem(STATE_KEY);
+    location.reload();
   });
 
   // --- receipt screen ---
@@ -73,24 +129,98 @@
     showView("home");
   });
 
-  document.querySelectorAll("[data-edit]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var nameEl = btn.previousElementSibling;
-      var editing = nameEl.getAttribute("contenteditable") === "true";
-      if (editing) {
-        nameEl.setAttribute("contenteditable", "false");
-        showToast("品目名を更新しました");
-      } else {
-        nameEl.setAttribute("contenteditable", "true");
-        nameEl.focus();
-        var range = document.createRange();
-        range.selectNodeContents(nameEl);
-        var sel = window.getSelection();
-        sel.removeAllRanges();
-        sel.addRange(range);
-      }
+  // Transcribed from an actual receipt (ツルヤ徳間店, 2026/08/23) the user photographed
+  // and shared, so this screen reflects real purchase data rather than invented text.
+  var RECEIPT_ITEMS = [
+    { name: "レタス", price: 69 },
+    { name: "ピーマン", price: 69 },
+    { name: "みょうが", price: 79 },
+    { name: "人参", price: 99 },
+    { name: "市田柿", price: 599 },
+    { name: "G皮なしウインナー", price: 199 },
+    { name: "蒸しだこ", price: 522 },
+    { name: "綾里浜刺身わかめ", price: 139 },
+    { name: "きざみあげジャンボ", price: 99 },
+    { name: "金のつぶたっぷりおだ", price: 109, lowConfidence: true },
+    { name: "国産紅生姜(2個)", price: 238 },
+    { name: "純生シュークリーム", price: 399 },
+    { name: "森林そだち中玉", price: 219 },
+    { name: "特選丸大豆しょうゆ", price: 249 },
+    { name: "ツルヤ純米本みりん", price: 499 },
+    { name: "料理酒国産米使用", price: 189 },
+    { name: "シジシー上白糖", price: 199, lowConfidence: true },
+    { name: "お新香三五八", price: 339 },
+    { name: "さっぱり漬の素", price: 279 },
+    { name: "なすの油みそのたれ", price: 129 },
+    { name: "ヤマナカ塩こんぶ", price: 159 },
+    { name: "手延そうめん", price: 299 },
+    { name: "アカシアはちみつ", price: 1290 },
+    { name: "SP強炭酸水", price: 79 },
+    { name: "ダナブルースライス", price: 479 },
+    { name: "チーズゴルゴンゾーラ", price: 119 }
+  ];
+  (function restoreReceiptItemNames() {
+    var saved = getSavedState();
+    if (!saved || !saved.receiptItemNames || saved.receiptItemNames.length !== RECEIPT_ITEMS.length) return;
+    RECEIPT_ITEMS.forEach(function (item, index) {
+      item.name = saved.receiptItemNames[index];
     });
-  });
+  })();
+
+  // 品目名を修正すると、在庫(冷蔵庫/常備品)側の商品名表示にも同じ内容を反映する。
+  function wireReceiptEditButtons() {
+    document.querySelectorAll("[data-edit]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var nameEl = btn.previousElementSibling;
+        var editing = nameEl.getAttribute("contenteditable") === "true";
+        if (editing) {
+          nameEl.setAttribute("contenteditable", "false");
+          var oldName = nameEl.dataset.originalName;
+          var newName = nameEl.textContent.trim();
+          if (newName && newName !== oldName) {
+            var receiptItem = RECEIPT_ITEMS.filter(function (r) { return r.name === oldName; })[0];
+            if (receiptItem) receiptItem.name = newName;
+            var sourceItem = ITEM_SOURCE.filter(function (i) { return i.productName === oldName; })[0];
+            if (sourceItem) {
+              sourceItem.productName = newName;
+              renderInventoryItems();
+            }
+            saveState();
+            showToast(sourceItem ? "品目名を更新し、在庫にも反映しました" : "品目名を更新しました");
+          } else {
+            showToast("品目名を更新しました");
+          }
+        } else {
+          nameEl.dataset.originalName = nameEl.textContent.trim();
+          nameEl.setAttribute("contenteditable", "true");
+          nameEl.focus();
+          var range = document.createRange();
+          range.selectNodeContents(nameEl);
+          var sel = window.getSelection();
+          sel.removeAllRanges();
+          sel.addRange(range);
+        }
+      });
+    });
+  }
+
+  function renderReceiptLines() {
+    var list = document.getElementById("receiptLines");
+    if (!list) return;
+    list.innerHTML = RECEIPT_ITEMS.map(function (item) {
+      return (
+        '<div class="rline">' +
+        '<span class="name' + (item.lowConfidence ? " low-confidence" : "") + '" contenteditable="false">' + item.name + "</span>" +
+        '<button class="pencil-btn" data-edit>' +
+        '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 013 3L7 19l-4 1 1-4z"/></svg>' +
+        "</button>" +
+        '<span class="price">¥' + item.price.toLocaleString() + "</span>" +
+        "</div>"
+      );
+    }).join("");
+    wireReceiptEditButtons();
+  }
+  renderReceiptLines();
 
   // --- segmented sub-navigation, scoped per view (在庫: 冷蔵庫/常備品, お店: お店履歴/価格の傾向) ---
   function switchInventorySubview(viewId, name) {
@@ -112,11 +242,11 @@
   // --- store data: single source of truth for history, totals and category prices ---
   var STORE_META = {
     A: {
-      name: "Aスーパー",
+      name: "ツルヤ 徳間店",
       visits: 5,
-      total: 18940,
+      total: 24458,
       history: [
-        { date: "2026/07/02", total: 2010 },
+        { date: "2026/08/23", total: 7528 },
         { date: "2026/06/25", total: 3480 },
         { date: "2026/06/18", total: 4120 },
         { date: "2026/06/09", total: 3960 },
@@ -147,6 +277,13 @@
       optional: true
     }
   };
+  (function restoreStoreMeta() {
+    var saved = getSavedState();
+    if (saved && saved.storeMeta) {
+      STORE_META = saved.storeMeta;
+    }
+  })();
+
   var CATEGORIES = [
     { key: "meat_fish", label: "肉・魚" },
     { key: "veg_fruit", label: "野菜・果物" },
@@ -304,6 +441,7 @@
           renderStores();
           renderPriceTrend();
           renderStoreOptions();
+          saveState();
           showToast("お店の名前を更新しました");
         } else {
           nameEl.setAttribute("contenteditable", "true");
@@ -347,6 +485,7 @@
         STORE_META[key].tracked = !STORE_META[key].tracked;
         renderStores();
         renderPriceTrend();
+        saveState();
       });
     });
   }
@@ -374,6 +513,7 @@
     renderStores();
     renderPriceTrend();
     renderStoreOptions();
+    saveState();
     addStoreForm.hidden = true;
     addStoreBtn.hidden = false;
     showToast("お店を追加しました");
@@ -382,6 +522,12 @@
   // --- store picker on the receipt scan result screen ---
   var storeSelect = document.getElementById("storeSelect");
   var currentReceiptStoreKey = "A";
+  (function restoreReceiptStoreKey() {
+    var saved = getSavedState();
+    if (saved && saved.currentReceiptStoreKey && STORE_META[saved.currentReceiptStoreKey]) {
+      currentReceiptStoreKey = saved.currentReceiptStoreKey;
+    }
+  })();
 
   function renderStoreOptions() {
     if (!storeSelect) return;
@@ -396,7 +542,7 @@
   function reassignReceiptStore(newKey, oldKey) {
     if (newKey === oldKey) return;
     var idx = STORE_META[oldKey].history.findIndex(function (h) {
-      return h.date === "2026/07/02";
+      return h.date === "2026/08/23";
     });
     var entry;
     if (idx !== -1) {
@@ -404,7 +550,7 @@
       STORE_META[oldKey].visits -= 1;
       STORE_META[oldKey].total -= entry.total;
     } else {
-      entry = { date: "2026/07/02", total: 2010 };
+      entry = { date: "2026/08/23", total: 7528 };
     }
     STORE_META[newKey].history.push(entry);
     STORE_META[newKey].visits += 1;
@@ -413,6 +559,7 @@
     renderPriceTrend();
     renderMonthSummary();
     updateHomeSpend();
+    saveState();
   }
 
   storeSelect.addEventListener("change", function () {
@@ -426,6 +573,7 @@
         reassignReceiptStore(key, currentReceiptStoreKey);
         currentReceiptStoreKey = key;
         storeSelect.value = key;
+        saveState();
         showToast("お店を追加しました");
       } else {
         storeSelect.value = currentReceiptStoreKey;
@@ -433,6 +581,7 @@
     } else {
       reassignReceiptStore(storeSelect.value, currentReceiptStoreKey);
       currentReceiptStoreKey = storeSelect.value;
+      saveState();
     }
   });
 
@@ -526,11 +675,133 @@
     switchInventorySubview("view-stores", "trend");
   });
 
+  // --- automatic 冷蔵庫/常備品 classification, by item name ---
+  var PANTRY_KEYWORDS = [
+    "醤油", "しょうゆ", "味噌", "みそ", "塩", "砂糖", "糖", "油", "みりん", "酢", "酒",
+    "米", "小麦粉", "だし", "コンソメ", "カレー粉", "胡椒", "こしょう", "マヨネーズ", "ケチャップ", "ソース",
+    "はちみつ", "そうめん", "三五八", "漬"
+  ];
+
+  function classifyItem(name) {
+    var isPantry = PANTRY_KEYWORDS.some(function (kw) {
+      return name.indexOf(kw) !== -1;
+    });
+    return isPantry ? "pantry" : "fresh";
+  }
+
+  var ICON_SVGS = {
+    salmon: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s4-6 10-6 10 6 10 6-4 6-10 6-10-6-10-6z"/><circle cx="12" cy="12" r="1.6" fill="currentColor" stroke="none"/></svg>',
+    spinach: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M12 21s-8-4-8-11a8 8 0 0116 0c0 7-8 11-8 11z"/><path d="M12 21V10"/></svg>',
+    meat: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M17.5 3.5a4.95 4.95 0 010 7l-7 7a3.5 3.5 0 01-5-5l7-7a4.95 4.95 0 015-2z"/><path d="M6 19l-2 2"/></svg>',
+    quinoa: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M4 10a8 8 0 0016 0"/><path d="M4 10c0-1 3.5-2 8-2s8 1 8 2"/><path d="M4 10l1.5 8.5A2 2 0 007.5 20h9a2 2 0 002-1.5L20 10"/></svg>',
+    other: '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v5l-4 6.5A3 3 0 008.5 18h7a3 3 0 002.5-4.5L14 7V2"/></svg>',
+    "pantry-soy": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v4l-3 4a4 4 0 00-1 2.6V19a3 3 0 003 3h4a3 3 0 003-3v-6.4a4 4 0 00-1-2.6l-3-4V2"/></svg>',
+    "pantry-oil": '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M9 2h6M10 2v4l-3 4a4 4 0 00-1 2.6V19a3 3 0 003 3h4a3 3 0 003-3v-6.4a4 4 0 00-1-2.6l-3-4V2"/></svg>'
+  };
+
+  // Each item only carries its own facts (name, quantity, icon, how long ago it was
+  // bought or its current stock level) — classifyItem() decides which section it renders in.
+  // Populated from the same real receipt (ツルヤ徳間店, 2026/08/23) shown on the receipt screen,
+  // so what's "in the fridge" actually matches what was bought.
+  // "name" = 内容(何であるか、大きく表示) / "productName" = レシート上の商品名(小さく補足表示)。
+  // productName はレシート解析結果画面の品目名と一致させ、修正時に紐付けられるようにしている。
+  var ITEM_SOURCE = [
+    { name: "レタス", productName: "レタス", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "ピーマン", productName: "ピーマン", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "みょうが", productName: "みょうが", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "人参", productName: "人参", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "干し柿", productName: "市田柿", purchasedDaysAgo: 1, icon: "quinoa" },
+    { name: "ウインナー", productName: "G皮なしウインナー", purchasedDaysAgo: 1, icon: "meat" },
+    { name: "たこ", productName: "蒸しだこ", purchasedDaysAgo: 1, icon: "salmon" },
+    { name: "わかめ", productName: "綾里浜刺身わかめ", purchasedDaysAgo: 1, icon: "salmon" },
+    { name: "きざみあげ", productName: "きざみあげジャンボ", purchasedDaysAgo: 1, icon: "other" },
+    { name: "納豆", productName: "金のつぶたっぷりおだ", purchasedDaysAgo: 1, icon: "other" },
+    { name: "紅生姜", productName: "国産紅生姜(2個)", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "シュークリーム", productName: "純生シュークリーム", purchasedDaysAgo: 1, icon: "quinoa" },
+    { name: "トマト", productName: "森林そだち中玉", purchasedDaysAgo: 1, icon: "spinach" },
+    { name: "炭酸水", productName: "SP強炭酸水", purchasedDaysAgo: 1, icon: "other" },
+    { name: "チーズ", productName: "ダナブルースライス", purchasedDaysAgo: 1, icon: "other" },
+    { name: "チーズ", productName: "チーズゴルゴンゾーラ", purchasedDaysAgo: 1, icon: "other" },
+    { name: "しょうゆ", productName: "特選丸大豆しょうゆ", icon: "pantry-soy", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "みりん", productName: "ツルヤ純米本みりん", icon: "pantry-oil", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "料理酒", productName: "料理酒国産米使用", icon: "pantry-soy", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "砂糖", productName: "シジシー上白糖", icon: "pantry-oil", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "漬け床", productName: "お新香三五八", icon: "pantry-soy", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "漬けの素", productName: "さっぱり漬の素", icon: "pantry-oil", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "油みそだれ", productName: "なすの油みそのたれ", icon: "pantry-soy", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "塩こんぶ", productName: "ヤマナカ塩こんぶ", icon: "pantry-oil", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "そうめん", productName: "手延そうめん", icon: "pantry-soy", initialStatus: "ok", purchasedDate: "8/23" },
+    { name: "はちみつ", productName: "アカシアはちみつ", icon: "pantry-oil", initialStatus: "ok", purchasedDate: "8/23" }
+  ];
+  (function restoreItemState() {
+    var saved = getSavedState();
+    if (!saved || !saved.itemStatus) return;
+    ITEM_SOURCE.forEach(function (item, index) {
+      var s = saved.itemStatus[index];
+      if (!s) return;
+      item.status = s.status;
+      item.consumedAt = s.consumedAt;
+      item.currentPantryStatus = s.pantryStatus;
+      if (s.productName) item.productName = s.productName;
+    });
+  })();
+
+  var THREE_DAYS_MS = 3 * 24 * 60 * 60 * 1000;
+  function isFadedOut(item) {
+    var isPantry = classifyItem(item.name) === "pantry";
+    var status = isPantry ? (item.currentPantryStatus || item.initialStatus) : item.status;
+    if (status !== "used" || !item.consumedAt) return false;
+    return Date.now() - new Date(item.consumedAt).getTime() > THREE_DAYS_MS;
+  }
+
+  function freshItemHtml(item) {
+    var isUsed = item.status === "used";
+    var purchasedLabel = item.purchasedDaysAgo === 0 ? "本日購入" : item.purchasedDaysAgo + "日前に購入";
+    return (
+      '<div class="card fridge-item' + (isUsed ? " is-used" : "") + '" data-status="' + (isUsed ? "used" : "remaining") + '" data-item-key="' + item.productName + '"' +
+      (item.consumedAt ? ' data-consumed-at="' + item.consumedAt + '"' : "") + '>' +
+      '<div class="ic ' + item.icon + '">' + ICON_SVGS[item.icon] + "</div>" +
+      '<div class="txt"><div class="name">' + item.name + '</div><div class="sub">' + item.productName + " ・ " + purchasedLabel + "</div></div>" +
+      '<button class="status-btn ' + (isUsed ? "st-used" : "st-remaining") + '" data-status-btn>' +
+      '<svg class="icon-remaining" ' + (isUsed ? "hidden " : "") + 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>' +
+      '<svg class="icon-used" ' + (isUsed ? "" : "hidden ") + 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>' +
+      '<span class="label">' + (isUsed ? "消費済み" : "残っている") + "</span>" +
+      "</button>" +
+      "</div>"
+    );
+  }
+
+  var PANTRY_STATUS_META = {
+    ok: { cls: "st-ok", label: "在庫あり" },
+    low: { cls: "st-low", label: "そろそろ切れそう" },
+    used: { cls: "st-used", label: "消費" }
+  };
+  var PANTRY_STATUS_ORDER = ["ok", "low", "used"];
+
+  function pantryItemHtml(item) {
+    var status = item.currentPantryStatus || item.initialStatus || "ok";
+    var meta = PANTRY_STATUS_META[status];
+    return (
+      '<div class="card fridge-item" data-item-key="' + item.productName + '" data-pantry-status="' + status + '"' +
+      (status === "used" ? ' data-status="used" data-consumed-at="' + item.consumedAt + '"' : "") + '>' +
+      '<div class="ic ' + item.icon + '">' + ICON_SVGS[item.icon] + "</div>" +
+      '<div class="txt"><div class="name">' + item.name + '</div><div class="sub">' + item.productName + " ・ " + item.purchasedDate + "購入</div></div>" +
+      '<button class="status-btn ' + meta.cls + '" data-pantry-cycle>' +
+      '<svg class="icon-ok" ' + (status === "ok" ? "" : "hidden ") + 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M20 6L9 17l-5-5"/></svg>' +
+      '<svg class="icon-low" ' + (status === "low" ? "" : "hidden ") + 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M12 9v4M12 17h.01"/><path d="M10.3 3.9L2.5 17a1.8 1.8 0 001.6 2.7h15.8a1.8 1.8 0 001.6-2.7L13.7 3.9a1.8 1.8 0 00-3.4 0z"/></svg>' +
+      '<svg class="icon-used" ' + (status === "used" ? "" : "hidden ") + 'viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round"><path d="M3 11a8 8 0 1 1 2.6 5.9M3 11v5h5"/></svg>' +
+      '<span class="label">' + meta.label + "</span>" +
+      "</button>" +
+      "</div>"
+    );
+  }
+
   // --- fridge item status (残っている / 消費済み) ---
   var fridgeRemaining = document.getElementById("fridgeRemaining");
   var fridgeUsed = document.getElementById("fridgeUsed");
   var fridgeCount = document.getElementById("fridgeCount");
   var usedEmptyMsg = document.getElementById("usedEmptyMsg");
+  var pantryListEl = document.getElementById("pantryList");
 
   function updateFridgeCount() {
     var names = Array.prototype.map.call(fridgeRemaining.children, function (item) {
@@ -548,34 +819,110 @@
       previewEl.textContent = names.slice(0, 2).join("、") + " ほか" + (names.length - 2) + "品";
     }
   }
-  updateFridgeCount();
 
   function updateUsedEmptyState() {
     usedEmptyMsg.hidden = fridgeUsed.children.length > 0;
   }
 
-  document.querySelectorAll("[data-status-btn]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var item = btn.closest(".fridge-item");
-      var nowUsed = item.dataset.status !== "used";
-      item.dataset.status = nowUsed ? "used" : "remaining";
-      if (nowUsed) {
-        item.dataset.consumedAt = new Date().toISOString();
-      } else {
-        delete item.dataset.consumedAt;
-      }
-      item.classList.toggle("is-used", nowUsed);
-      btn.classList.toggle("st-used", nowUsed);
-      btn.classList.toggle("st-remaining", !nowUsed);
-      btn.querySelector(".icon-remaining").hidden = nowUsed;
-      btn.querySelector(".icon-used").hidden = !nowUsed;
-      btn.querySelector(".label").textContent = nowUsed ? "消費済み" : "残っている";
-      (nowUsed ? fridgeUsed : fridgeRemaining).appendChild(item);
-      updateFridgeCount();
-      updateUsedEmptyState();
-      renderNutritionDiagnosis();
+  function findSourceItem(productName) {
+    return ITEM_SOURCE.filter(function (i) {
+      return i.productName === productName;
+    })[0];
+  }
+
+  // 状態を切り替えるたびに一覧を作り直す(=renderInventoryItemsを呼ぶ)ことで、
+  // 「野菜→海鮮→肉類→その他」の並び順が消費済みへの移動時にも崩れないようにしている。
+  function wireStatusButtons() {
+    document.querySelectorAll("[data-status-btn]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var item = btn.closest(".fridge-item");
+        var nowUsed = item.dataset.status !== "used";
+        var sourceItem = findSourceItem(item.dataset.itemKey);
+        if (sourceItem) {
+          sourceItem.status = nowUsed ? "used" : "remaining";
+          sourceItem.consumedAt = nowUsed ? new Date().toISOString() : null;
+        }
+
+        renderInventoryItems();
+        renderNutritionDiagnosis();
+        refreshRecipes();
+        saveState();
+      });
     });
-  });
+  }
+
+  // 常備品も冷蔵庫と同じく「消費」を記録できるよう、在庫あり→そろそろ切れそう→消費 の3状態を順に切り替える。
+  // 「消費」になった常備品は栄養診断の対象にもなり(data-status/data-consumed-atを付与)、
+  // 消費してから3日経つと在庫表示から自動的に消える(isFadedOut/renderInventoryItems側で判定)。
+  function wirePantryButtons() {
+    document.querySelectorAll("[data-pantry-cycle]").forEach(function (btn) {
+      btn.addEventListener("click", function () {
+        var item = btn.closest(".fridge-item");
+        var current = item.dataset.pantryStatus || "ok";
+        var next = PANTRY_STATUS_ORDER[(PANTRY_STATUS_ORDER.indexOf(current) + 1) % PANTRY_STATUS_ORDER.length];
+        var meta = PANTRY_STATUS_META[next];
+
+        var sourceItem = findSourceItem(item.dataset.itemKey);
+        var consumedAt = next === "used" ? new Date().toISOString() : null;
+        if (sourceItem) {
+          sourceItem.currentPantryStatus = next;
+          sourceItem.consumedAt = consumedAt;
+        }
+
+        item.dataset.pantryStatus = next;
+        if (next === "used") {
+          item.dataset.status = "used";
+          item.dataset.consumedAt = consumedAt;
+        } else {
+          delete item.dataset.status;
+          delete item.dataset.consumedAt;
+        }
+        item.className = "card fridge-item";
+        btn.className = "status-btn " + meta.cls;
+        btn.querySelector(".icon-ok").hidden = next !== "ok";
+        btn.querySelector(".icon-low").hidden = next !== "low";
+        btn.querySelector(".icon-used").hidden = next !== "used";
+        btn.querySelector(".label").textContent = meta.label;
+
+        renderNutritionDiagnosis();
+        refreshRecipes();
+        saveState();
+      });
+    });
+  }
+
+  // 献立を考えやすいよう、冷蔵庫の並び順を「野菜→海鮮→肉類→その他」でまとめる。
+  var CATEGORY_ORDER = { spinach: 0, salmon: 1, meat: 2, quinoa: 3, other: 3 };
+  function sortByCategory(items) {
+    return items.slice().sort(function (a, b) {
+      return (CATEGORY_ORDER[a.icon] != null ? CATEGORY_ORDER[a.icon] : 9) -
+        (CATEGORY_ORDER[b.icon] != null ? CATEGORY_ORDER[b.icon] : 9);
+    });
+  }
+
+  function renderInventoryItems() {
+    var freshRemaining = [];
+    var freshUsed = [];
+    var pantryHtml = "";
+    ITEM_SOURCE.forEach(function (item) {
+      if (isFadedOut(item)) return; // 消費済みから3日経過した商品は在庫表示から消す
+      if (classifyItem(item.name) === "pantry") {
+        pantryHtml += pantryItemHtml(item);
+      } else if (item.status === "used") {
+        freshUsed.push(item);
+      } else {
+        freshRemaining.push(item);
+      }
+    });
+    fridgeRemaining.innerHTML = sortByCategory(freshRemaining).map(freshItemHtml).join("");
+    fridgeUsed.innerHTML = sortByCategory(freshUsed).map(freshItemHtml).join("");
+    pantryListEl.innerHTML = pantryHtml;
+    wireStatusButtons();
+    wirePantryButtons();
+    updateFridgeCount();
+    updateUsedEmptyState();
+  }
+  renderInventoryItems();
 
   // --- nutrition diagnosis: computed from items marked 消費済み in the last 7 days ---
   var NUTRIENT_AXES = [
@@ -591,10 +938,31 @@
 
   // Which of the 5 major nutrient groups each fridge item mainly contributes.
   var NUTRIENT_PROFILE = {
-    "サーモン刺身": ["protein", "fat"],
-    "ほうれん草": ["vitamin", "mineral"],
-    "キノア 250g": ["carb", "protein"],
-    "牛乳・卵・トマト": ["protein", "fat", "vitamin", "mineral"]
+    "レタス": ["vitamin"],
+    "ピーマン": ["vitamin"],
+    "みょうが": ["vitamin", "mineral"],
+    "人参": ["vitamin"],
+    "干し柿": ["carb", "vitamin"],
+    "ウインナー": ["protein", "fat"],
+    "たこ": ["protein"],
+    "わかめ": ["mineral"],
+    "きざみあげ": ["protein", "fat"],
+    "納豆": ["protein", "mineral"],
+    "紅生姜": ["vitamin"],
+    "シュークリーム": ["carb", "fat"],
+    "トマト": ["vitamin", "mineral"],
+    "炭酸水": [],
+    "チーズ": ["protein", "fat", "mineral"],
+    "しょうゆ": ["mineral"],
+    "みりん": ["carb"],
+    "料理酒": [],
+    "砂糖": ["carb"],
+    "漬け床": ["mineral"],
+    "漬けの素": ["mineral"],
+    "油みそだれ": ["fat", "mineral"],
+    "塩こんぶ": ["mineral"],
+    "そうめん": ["carb"],
+    "はちみつ": ["carb"]
   };
   var NUTRIENT_SUGGESTIONS = {
     protein: "肉・魚・卵などを1品足すと改善します。",
@@ -613,6 +981,10 @@
     });
   }
 
+  // 今週いちばん不足している栄養素。レシピの「おすすめ」バッジ判定にも使う。
+  // 診断データが無い/どの栄養素も基準を満たしている場合はnull(=バッジ対象なし)。
+  var weakestNutrientKey = null;
+
   function renderNutritionDiagnosis() {
     var emptyEl = document.getElementById("radarEmpty");
     var wrapEl = document.getElementById("radarWrap");
@@ -628,6 +1000,7 @@
       wrapEl.hidden = true;
       disclaimerEl.hidden = true;
       warningEl.hidden = true;
+      weakestNutrientKey = null;
       return;
     }
     emptyEl.hidden = true;
@@ -669,8 +1042,10 @@
 
     if (values[minKey] >= 0.8) {
       warningEl.hidden = true;
+      weakestNutrientKey = null;
     } else {
       warningEl.hidden = false;
+      weakestNutrientKey = minKey;
       document.getElementById("warningTitle").textContent = "今週は" + minAxis.label + "が不足しています";
       document.getElementById("warningBody").textContent =
         minAxis.label + "を含む食品の消費が基準の約" + minPercent + "%。" + NUTRIENT_SUGGESTIONS[minKey];
@@ -678,70 +1053,88 @@
   }
   renderNutritionDiagnosis();
 
-  // --- pantry staples (在庫あり / そろそろ切れそう) — no purchase-date tracking, unlike fresh food ---
-  document.querySelectorAll("[data-pantry-toggle]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var nowLow = !btn.classList.contains("st-low");
-      btn.classList.toggle("st-low", nowLow);
-      btn.classList.toggle("st-ok", !nowLow);
-      btn.querySelector(".icon-ok").hidden = nowLow;
-      btn.querySelector(".icon-low").hidden = !nowLow;
-      btn.querySelector(".label").textContent = nowLow ? "そろそろ切れそう" : "在庫あり";
-    });
-  });
-
   // --- nutrition screen: recipe suggestions built only from what's in the fridge ---
-  var VEGETABLE_INGREDIENTS = ["ほうれん草", "トマト"]; // matches this week's diagnosis ("今週は野菜が不足しています")
-
-  var HERO_RECIPE = { ingredients: ["サーモン", "ほうれん草", "キノア"] };
+  // Ingredients/dishes below are built from the same real receipt (ツルヤ徳間店, 2026/08/23).
+  var HERO_RECIPE = { ingredients: ["たこ", "人参", "レタス"], dishType: "マリネ" };
 
   var RECIPE_CATEGORIES = {
     main: {
       label: "メイン料理",
       items: [
-        { name: "サーモンとほうれん草のソテー", ingredients: ["サーモン", "ほうれん草"] },
-        { name: "トマトと卵の炒め物", ingredients: ["トマト", "卵"] },
-        { name: "キノアと卵のチャーハン風", ingredients: ["キノア", "卵"] },
-        { name: "サーモンのムニエル", ingredients: ["サーモン", "牛乳"] }
+        { name: "ウインナーとピーマンの炒め物", ingredients: ["ウインナー", "ピーマン"], dishType: "炒め物" },
+        { name: "蒸しだことわかめの酢の物", ingredients: ["たこ", "わかめ"], dishType: "酢の物" },
+        { name: "きざみあげとピーマンの卵とじ", ingredients: ["きざみあげ", "ピーマン"], dishType: "卵とじ" },
+        { name: "人参と紅生姜のきんぴら", ingredients: ["人参", "紅生姜"], dishType: "きんぴら" }
       ]
     },
     side: {
       label: "副菜",
       items: [
-        { name: "ほうれん草の胡麻和え", ingredients: ["ほうれん草"] },
-        { name: "トマトサラダ", ingredients: ["トマト"] },
-        { name: "キノアサラダ", ingredients: ["キノア"] }
+        { name: "みょうがとレタスのさっぱりサラダ", ingredients: ["みょうが", "レタス"], dishType: "サラダ" },
+        { name: "人参としょうがの浅漬け", ingredients: ["人参", "紅生姜"], dishType: "浅漬け" },
+        { name: "わかめと塩こんぶの和え物", ingredients: ["わかめ", "塩こんぶ"], dishType: "和え物" }
       ]
     },
     soup: {
       label: "汁物",
       items: [
-        { name: "卵とトマトのスープ", ingredients: ["卵", "トマト"] },
-        { name: "牛乳のクリームスープ(キノア入り)", ingredients: ["牛乳", "キノア"] },
-        { name: "ほうれん草の味噌汁", ingredients: ["ほうれん草"] }
+        { name: "中玉トマトとチーズのスープ", ingredients: ["トマト", "チーズ"], dishType: "スープ" },
+        { name: "そうめんと蒸しだこのすまし汁", ingredients: ["そうめん", "たこ"], dishType: "すまし汁" },
+        { name: "レタスと納豆のみそ汁", ingredients: ["レタス", "納豆"], dishType: "みそ汁" }
       ]
     }
   };
 
-  function isVeggieRecipe(ingredients) {
-    return ingredients.some(function (i) {
-      return VEGETABLE_INGREDIENTS.indexOf(i) !== -1;
+  // 表示条件: 食材が1つ以上、今の冷蔵庫(生鮮食品)にあれば表示する(全部揃っている必要はない)。
+  // 「冷蔵庫にある」は、消費済み/そろそろ切れそうの状態ではなく、
+  // 3日経過などで在庫表示自体から消えた(isFadedOut)＝完全に無くなった場合のみ「無い」扱いにする。
+  function isFreshIngredientOnHand(name) {
+    return ITEM_SOURCE.some(function (item) {
+      return item.name === name && classifyItem(item.name) !== "pantry" && !isFadedOut(item);
     });
   }
 
-  // Search by the fridge ingredients themselves (not the invented dish name),
-  // so the linked-out results are actually built around food the user has.
-  function cookpadSearchUrl(ingredients) {
-    return "https://cookpad.com/search/" + encodeURIComponent(ingredients.join(" "));
+  function countAvailableIngredients(ingredients) {
+    return ingredients.filter(isFreshIngredientOnHand).length;
+  }
+
+  function isRecipeFeasible(ingredients) {
+    return countAvailableIngredients(ingredients) > 0;
+  }
+
+  // バッジ: 今週の栄養診断でいちばん不足している栄養素を補う食材を含むものだけ「おすすめ」にする。
+  function fillsWeakestNutrient(ingredients) {
+    if (!weakestNutrientKey) return false;
+    return ingredients.some(function (name) {
+      return (NUTRIENT_PROFILE[name] || []).indexOf(weakestNutrientKey) !== -1;
+    });
+  }
+
+  // 食材名だけで検索すると、汁物なのに炒め物やサラダが検索結果に出るなど
+  // 料理名とリンク先が噛み合わないことがあるため、料理の種類(スープ/サラダ等)も
+  // 検索語に含めて、実際の検索結果が料理名の内容と合うようにしている。
+  function cookpadSearchUrl(ingredients, dishType) {
+    var terms = dishType ? ingredients.concat([dishType]) : ingredients;
+    return "https://cookpad.com/search/" + encodeURIComponent(terms.join(" "));
   }
 
   function renderRecipeCategory(key) {
     var list = document.getElementById("recipeCategoryList");
+    var emptyEl = document.getElementById("recipeCategoryEmpty");
     if (!list) return;
-    list.innerHTML = RECIPE_CATEGORIES[key].items.map(function (item) {
-      var isRecommended = isVeggieRecipe(item.ingredients);
+    // 冷蔵庫にある食材を1つでも使うものだけ表示し、その中でも今ある食材をより多く使うものを上に出す。
+    var items = RECIPE_CATEGORIES[key].items
+      .filter(function (item) {
+        return isRecipeFeasible(item.ingredients);
+      })
+      .sort(function (a, b) {
+        return countAvailableIngredients(b.ingredients) - countAvailableIngredients(a.ingredients);
+      });
+    if (emptyEl) emptyEl.hidden = items.length > 0;
+    list.innerHTML = items.map(function (item) {
+      var isRecommended = fillsWeakestNutrient(item.ingredients);
       return (
-        '<a class="recipe-item" href="' + cookpadSearchUrl(item.ingredients) + '" target="_blank" rel="noopener">' +
+        '<a class="recipe-item" href="' + cookpadSearchUrl(item.ingredients, item.dishType) + '" target="_blank" rel="noopener">' +
         '<span class="recipe-item-text">' +
         '<span class="recipe-item-name">' + item.name + "</span>" +
         '<span class="recipe-item-ingredients">使用食材: ' + item.ingredients.join("・") + "</span>" +
@@ -751,6 +1144,27 @@
         "</a>"
       );
     }).join("");
+  }
+
+  function renderActiveRecipeCategory() {
+    var activeBtn = document.querySelector(".cat-btn.active");
+    renderRecipeCategory(activeBtn ? activeBtn.dataset.category : "main");
+  }
+
+  function renderHeroRecipe() {
+    var block = document.getElementById("heroRecipeBlock");
+    var emptyEl = document.getElementById("heroRecipeEmpty");
+    var feasible = isRecipeFeasible(HERO_RECIPE.ingredients);
+    if (block) block.hidden = !feasible;
+    if (emptyEl) emptyEl.hidden = feasible;
+    document.getElementById("heroRecipeLink").href = cookpadSearchUrl(HERO_RECIPE.ingredients, HERO_RECIPE.dishType);
+  }
+
+  // 在庫の状態(消費済みにする/常備品を消費にする等)が変わるたびに呼び、
+  // レシピ提案(おすすめ1件+カテゴリ一覧)を今の在庫にあわせて作り直す。
+  function refreshRecipes() {
+    renderHeroRecipe();
+    renderActiveRecipeCategory();
   }
 
   document.querySelectorAll(".cat-btn").forEach(function (btn) {
@@ -763,8 +1177,7 @@
   });
   document.querySelector('.cat-btn[data-category="main"]').classList.add("active");
   renderRecipeCategory("main");
-
-  document.getElementById("heroRecipeLink").href = cookpadSearchUrl(HERO_RECIPE.ingredients);
+  renderHeroRecipe();
 
   document.getElementById("scrollHintBtn").addEventListener("click", function () {
     document.getElementById("view-nutrition").scrollBy({ top: 360, behavior: "smooth" });
